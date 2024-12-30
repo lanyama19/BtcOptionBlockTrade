@@ -49,12 +49,22 @@ for idx, record in enumerate(reversed(processed_data)):
         print("Skipping record: 'text' is a dictionary.")
         continue
 
-    # Extract and process "text"
+    # Extract and process "text" with exception handling
     try:
-        text = record.get("text", "")[0].strip()
-        # print(text)
+        text_field = record.get("text", "")
+        if isinstance(text_field, list):
+            text = text_field[0].strip() if text_field else ''
+        else:
+            text = text_field.strip()
+
+        if not text:  # Check if text is still empty after processing
+            print("Skipping record: 'text' is empty after processing.")
+            continue
     except IndexError:
         print("Skipping record: 'text' is not iterable.")
+        continue
+    except AttributeError:
+        print("Skipping record: 'text' does not support strip().")
         continue
 
     first_line = text.split("\n")[0]  # Extract the first line
