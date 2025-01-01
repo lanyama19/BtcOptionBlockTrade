@@ -1,6 +1,9 @@
 import os
 import json
 import re
+import pandas as pd
+from collections import Counter
+from datetime import datetime
 
 
 file_path = os.path.join(os.getcwd(), "data", "result.json")
@@ -100,6 +103,10 @@ for idx, record in enumerate(reversed(processed_data)):
     # Extract IVs
     iv_matches = re.findall(r"IV\s*:\s*([\d.]+)%", text)
 
+    # Extract Index Price (allow optional spaces between "Index Price" and "$")
+    index_price_match = re.search(r"Index Price\s*\$([\d.]+)", text)
+    index_price = float(index_price_match.group(1)) if index_price_match else None
+
     # Count the number of Sold/Bought matches
     sold_bought_count = len(action_matches)
     number_counts = number_counts + sold_bought_count  # Increment the total count
@@ -126,5 +133,66 @@ for idx, record in enumerate(reversed(processed_data)):
             "action": action,
             "contract_name": contract_name,
             "iv": iv,
-            "premium": premium
+            "premium": premium,
+            "index_price": index_price
         })
+
+
+# Convert to DataFrame
+df = pd.DataFrame(trade_aggregated)
+
+# Function to convert premium to float and handle 'K'/'M'
+def convert_premium(value):
+    if isinstance(value, str):
+        if 'K' in value:
+            return float(value.replace('K', '')) * 1000
+        elif 'M' in value:
+            return float(value.replace('M', '')) * 1000000
+        else:
+            return float(value)
+    return value
+
+# Convert columns to float
+df["contract_size"] = df["contract_size"].astype(float)
+df["iv"] = df["iv"].astype(float)
+df["index_price"] = df["index_price"].astype(float)
+df["premium"] = df["premium"].apply(convert_premium)
+
+
+# Function to extract expiry, strike, and type from contract_name
+def extract_details(contract_name):
+    # Updated regex to handle single or double-digit days
+    match = re.match(r".*-(\d{1,2}[A-Z]{3}\d{2})-(\d+)-([CP])", contract_name)
+    if match:
+        # Extract expiry in format like "5DEC24" or "15JAN25"
+        expiry_str = match.group(1)
+        # Convert to datetime, assuming day first
+        expiry = datetime.strptime(expiry_str, "%d%b%y")
+        # Extract strike price
+        strike = float(match.group(2))
+        # Extract option type
+        option_type = "Call" if match.group(3) == "C" else "Put"
+        return expiry, strike, option_type
+    return None, None, None
+
+# Apply the function to the DataFrame
+df[["expiry", "strike", "type"]] = df["contract_name"].apply(
+    lambda x: pd.Series(extract_details(x))
+)
+
+df['expiry'] = df['expiry'].apply(lambda x: x + pd.Timedelta(hours=8) if pd.notna(x) else x)
+# Convert date_unixtime to datetime
+df['current_date'] = pd.to_datetime(df['date_unixtime'], unit='s')
+
+# Calculate time to maturity in years
+df['time_to_maturity'] = df.apply(
+    lambda row: (row['expiry'] - row['current_date']).total_seconds() / (365 * 24 * 60 * 60)
+    if pd.notna(row['expiry']) and pd.notna(row['current_date']) else None,
+    axis=1
+)
+
+#Set 'risk_free_rate to 0.0
+df['risk_free_rate'] = 0.0
+
+# Save as pickle file
+df.to_pickle("block_trade.pkl")
