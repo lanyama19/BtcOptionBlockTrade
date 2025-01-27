@@ -148,12 +148,58 @@ write.csv(all_results, "stationarity_tests_results.csv", row.names = FALSE)
 if (!requireNamespace("vars", quietly = TRUE)) {
   install.packages("vars")
 }
-library(vars)
 
+library(vars)
 
 var_data <- final_df[, c("log_return", "iv_diff", "VRP", "Delta", "Gamma", "Vega")]
 var_model <- VAR(var_data, p = 1, type = "const") # Fit the VAR(1) model
 summary(var_model)
+
+
+# Function to extract coefficients and t-values
+extract_var_results <- function(var_model) {
+  # Get summary of the VAR model
+  var_summary <- summary(var_model)
+  
+  # Initialize an empty list to store results
+  results_list <- list()
+  
+  # Loop through each dependent variable in the VAR model
+  for (dep_var in names(var_summary$varresult)) {
+    # Get the coefficients and t-values for the dependent variable
+    coef_matrix <- coef(var_summary$varresult[[dep_var]])
+    t_values <- coef_matrix[, "t value"]
+    
+    # Combine coefficients and t-values (t-values on a new line)
+    coef_tval <- paste0(round(coef_matrix[, "Estimate"], 4), 
+                        "\n(", round(t_values, 4), ")")
+    
+    # Store in the results list
+    results_list[[dep_var]] <- coef_tval
+  }
+  
+  # Combine results into a single data frame
+  results_df <- do.call(cbind, results_list)
+  
+  # Transpose the matrix to make dependent variables rows
+  results_df <- t(results_df)
+  
+  # Set row and column names for clarity
+  colnames(results_df) <- rownames(coef_matrix)
+  rownames(results_df) <- names(var_summary$varresult)
+  
+  return(results_df)
+}
+
+# Generate the results table
+var_results_table <- extract_var_results(var_model)
+
+# Print the transposed table
+print(var_results_table)
+
+# Save the transposed table to a CSV file
+write.csv(var_results_table, "transposed_var_model_results.csv", row.names = TRUE, quote = TRUE)
+
 
 # Check the stability of the VAR model
 stability_results <- stability(var_model)
